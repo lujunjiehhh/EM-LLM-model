@@ -1,6 +1,6 @@
-# EM-LLM: Human-like Episodic Memory for Infinite Context LLMs
+# EM-LLM: Human-inspired Episodic Memory for Infinite Context LLMs
 
-This repository contains a version of the code for EM-LLM: [[arXiv]](https://arxiv.org/abs/2407.09450). Our paper (with this code version) has now been <b>accepted to ICLR 2025</b>.
+This repository contains a version of the code for EM-LLM, published in <b>ICLR 2025</b>: [[openreview link]](https://openreview.net/forum?id=BI2int5SAC).
 
 ## Quick Links
 * [Overview](#overview)
@@ -122,13 +122,11 @@ bash scripts/run.sh
 If you find EM-LLM useful, please cite the following paper:
 
 ```
-@misc{fountas2024humanlikeepisodicmemoryinfinite,
-      title={Human-like Episodic Memory for Infinite Context LLMs}, 
-      author={Zafeirios Fountas and Martin A Benfeghoul and Adnan Oomerjee and Fenia Christopoulou and Gerasimos Lampouras and Haitham Bou-Ammar and Jun Wang},
-      year={2024},
-      eprint={2407.09450},
-      archivePrefix={arXiv},
-      primaryClass={cs.AI},
-      url={https://arxiv.org/abs/2407.09450}, 
+@inproceedings{fountas2025humaninspired,
+    title={Human-inspired Episodic Memory for Infinite Context {LLM}s},
+    author={Zafeirios Fountas and Martin Benfeghoul and Adnan Oomerjee and Fenia Christopoulou and Gerasimos Lampouras and Haitham Bou Ammar and Jun Wang},
+    booktitle={The Thirteenth International Conference on Learning Representations},
+    year={2025},
+    url={https://openreview.net/forum?id=BI2int5SAC}
 }
 ```
