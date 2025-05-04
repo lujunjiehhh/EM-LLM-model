@@ -45,6 +45,7 @@ def em_llm_attn_forward(
         dim_head, 
         num_heads, 
         num_heads_kv,
+        **extra_kwargs
     ):
         
         batch_size = query.size(0)
@@ -53,16 +54,50 @@ def em_llm_attn_forward(
         len_k = key_value.size(1)
         
         assert use_cache
+        
+        # Check if we have Qwen3-specific normalization layers
+        q_norm = extra_kwargs.get('q_norm', None)
+        k_norm = extra_kwargs.get('k_norm', None)
+        
         if project_k is not None:
             h_q = project_q(query)  # (batch, len_q, num_heads * dim_head)
             h_k = project_k(key_value)  # (batch, len_k, num_heads_kv * dim_head)
             h_v = project_v(key_value)  # (batch, len_k, num_heads_kv * dim_head)
+            
+            # Apply Qwen3-specific normalization if available
+            if q_norm is not None and k_norm is not None:
+                h_q_shape = (batch_size, len_q, num_heads, dim_head)
+                h_k_shape = (batch_size, len_k, num_heads_kv, dim_head)
+                
+                h_q = h_q.view(h_q_shape)
+                h_k = h_k.view(h_k_shape)
+                
+                h_q = q_norm(h_q)
+                h_k = k_norm(h_k)
+                
+                h_q = h_q.reshape(batch_size, len_q, num_heads * dim_head)
+                h_k = h_k.reshape(batch_size, len_k, num_heads_kv * dim_head)
         else:
             qkv = project_q(query)
             query_pos = num_heads * dim_head
             h_q = qkv[..., :query_pos]
             h_k = qkv[..., query_pos : query_pos + num_heads_kv * dim_head]
             h_v = qkv[..., query_pos + num_heads_kv * dim_head :]
+            
+            # Apply Qwen3-specific normalization if available
+            if q_norm is not None and k_norm is not None:
+                h_q_shape = (batch_size, len_q, num_heads, dim_head)
+                h_k_shape = (batch_size, len_k, num_heads_kv, dim_head)
+                
+                h_q = h_q.view(h_q_shape)
+                h_k = h_k.view(h_k_shape)
+                
+                h_q = q_norm(h_q)
+                h_k = k_norm(h_k)
+                
+                h_q = h_q.reshape(batch_size, len_q, num_heads * dim_head)
+                h_k = h_k.reshape(batch_size, len_k, num_heads_kv * dim_head)
+                
         h_q = h_q.view(batch_size, len_q, num_heads, dim_head).permute(0, 2, 1, 3).contiguous()   # (batch, num_heads, len_q, dim_head)
         h_k = h_k.view(batch_size, len_k, num_heads_kv, dim_head).permute(0, 2, 1, 3).contiguous()   # (batch, num_heads_kv, len_k, dim_head)
         h_v = h_v.view(batch_size, len_k, num_heads_kv, dim_head).permute(0, 2, 1, 3).contiguous()   # (batch, num_heads_kv, len_k, dim_head)

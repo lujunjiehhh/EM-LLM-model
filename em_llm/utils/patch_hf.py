@@ -26,6 +26,15 @@ def huggingface_forward(forward):
             v_proj = None
         else:
             raise NotImplementedError(f"The attention module {self.__class__.__name__} does not appear to have the required projection methods.")
+            
+        # Handle Qwen3 specific normalization if present
+        if hasattr(self, 'q_norm') and hasattr(self, 'k_norm'):
+            # For Qwen3 models with separate normalization layers
+            q_norm = self.q_norm
+            k_norm = self.k_norm
+            kwargs['q_norm'] = q_norm
+            kwargs['k_norm'] = k_norm
+            
         hidden_states, loss, pkv = forward(
             self, 
             hidden_states, 
@@ -40,6 +49,7 @@ def huggingface_forward(forward):
             self.head_dim, 
             self.num_heads, 
             self.num_key_value_heads,
+            **kwargs
         )
 
         return hidden_states, loss, pkv
@@ -230,20 +240,39 @@ def patch_hf(
         
     # This approach lacks scalability and will be refactored.
     from transformers import LlamaForCausalLM, MistralForCausalLM, Qwen2ForCausalLM, Phi3ForCausalLM
-
+    
+    # Import Qwen3ForCausalLM from the local file if it's not in transformers
+    try:
+        from transformers import Qwen3ForCausalLM
+    except ImportError:
+        import sys
+        import os
+        # Add the root directory to the path to import the local Qwen3 model
+        sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../../')))
+        from modeling_qwen3 import Qwen3ForCausalLM
+    
     forward = huggingface_forward(ATTN_FORWARD[attn_type](model=model, **attn_kwargs))
 
     if isinstance(model, LlamaForCausalLM) or isinstance(model, MistralForCausalLM) \
         or isinstance(model, Qwen2ForCausalLM) or isinstance(model, Phi3ForCausalLM) \
         or model.__class__.__name__ == "Phi3ForCausalLM" \
-        or model.__class__.__name__ == "MiniCPMForCausalLM":
+        or model.__class__.__name__ == "MiniCPMForCausalLM" \
+        or model.__class__.__name__ == "Qwen3ForCausalLM":
         Attention = model.model.layers[0].self_attn.__class__
         Model = model.model.__class__
     else:
-        raise ValueError(f"Only supports llama, mistral, phi3, and qwen2 models. {model.__class__.__name__} was passed.")
+        raise ValueError(f"Only supports llama, mistral, phi3, qwen2, and qwen3 models. {model.__class__.__name__} was passed.")
 
     hf_rope = model.model.layers[0].self_attn.rotary_emb 
-    if not hasattr(hf_rope, 'dim'):
+    if model.__class__.__name__ == "Qwen3ForCausalLM":
+        # Handle Qwen3 rotary embedding
+        head_dim = model.model.layers[0].self_attn.head_dim
+        hf_rope.dim = head_dim
+        hf_rope.base = getattr(hf_rope.config, "rope_theta", 10000.0)
+        base = base if base is not None else hf_rope.base
+        distance_scale = distance_scale if distance_scale is not None else 1.0
+        ext_factors = torch.tensor(1.0)
+    elif not hasattr(hf_rope, 'dim'):
         hf_rope.dim = hf_rope.rope_kwargs.get("dim", None)
         hf_rope.base = hf_rope.rope_kwargs.get("base", None).rope_theta
         if hf_rope.dim is None and hf_rope.config is not None:
@@ -253,18 +282,22 @@ def patch_hf(
             hf_rope.dim = int(head_dim * partial_rotary_factor)
         else: 
             raise NotImplementedError 
-    base = base if base is not None else hf_rope.base
-    distance_scale = distance_scale if distance_scale is not None else 1.0
-    if hasattr(hf_rope, 'short_factor'):
-        new_max_pos_emb = attn_kwargs["n_local"] + attn_kwargs["exc_block_size"]
-        scale = new_max_pos_emb / hf_rope.original_max_position_embeddings
-        if scale <= 1.0:
-            ext_factors = torch.tensor(hf_rope.short_factor)
+        base = base if base is not None else hf_rope.base
+        distance_scale = distance_scale if distance_scale is not None else 1.0
+        if hasattr(hf_rope, 'short_factor'):
+            new_max_pos_emb = attn_kwargs["n_local"] + attn_kwargs["exc_block_size"]
+            scale = new_max_pos_emb / hf_rope.original_max_position_embeddings
+            if scale <= 1.0:
+                ext_factors = torch.tensor(hf_rope.short_factor)
+            else:
+                print(f"Extending context past original window with scale factor: {scale}")
+                ext_factors = torch.tensor(hf_rope.long_factor)
+                distance_scale = math.sqrt(1 + math.log(scale) / math.log(hf_rope.original_max_position_embeddings))
         else:
-            print(f"Extending context past original window with scale factor: {scale}")
-            ext_factors = torch.tensor(hf_rope.long_factor)
-            distance_scale = math.sqrt(1 + math.log(scale) / math.log(hf_rope.original_max_position_embeddings))
+            ext_factors = torch.tensor(1.0)
     else:
+        base = base if base is not None else hf_rope.base
+        distance_scale = distance_scale if distance_scale is not None else 1.0
         ext_factors = torch.tensor(1.0)
     rope = RotaryEmbeddingESM(
         hf_rope.dim,
