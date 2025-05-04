@@ -105,14 +105,24 @@ The integration was tested using a script that verifies all the necessary change
 
 ## Usage
 
-To use Qwen3 with EM-LLM, you can now load a Qwen3 model and apply the EM-LLM patch:
+### Using the Configuration File
+
+A configuration file for Qwen3-4B has been added to the `config` directory. You can use it with the EM-LLM CLI:
+
+```bash
+python -m em_llm.cli --config config/qwen3.yaml
+```
+
+### Using the API
+
+To use Qwen3 with EM-LLM programmatically, you can now load a Qwen3 model and apply the EM-LLM patch:
 
 ```python
 from transformers import Qwen3ForCausalLM, Qwen3Tokenizer
 from em_llm.utils.patch_hf import patch_hf
 
 # Load Qwen3 model and tokenizer
-model_name = "Qwen/Qwen3-7B"
+model_name = "Qwen/Qwen3-4B"  # or "Qwen/Qwen3-7B", etc.
 tokenizer = Qwen3Tokenizer.from_pretrained(model_name)
 model = Qwen3ForCausalLM.from_pretrained(model_name)
 
@@ -120,15 +130,22 @@ model = Qwen3ForCausalLM.from_pretrained(model_name)
 patched_model = patch_hf(
     model,
     attn_type="em_llm",
-    n_local=32,
-    n_init=32,
-    max_block_size=32,
-    max_cached_block=32,
-    exc_block_size=32,
+    n_local=4096,
+    n_init=128,
+    max_block_size=128,
+    max_cached_block=520,  # Must be greater than n_mem/min_block_size
+    exc_block_size=512,
 )
 
 # Now you can use the patched model with EM-LLM's memory capabilities
 ```
+
+### Configuration Parameters
+
+When using Qwen3 with EM-LLM, ensure that:
+
+1. `max_cached_block` is greater than `n_mem/min_block_size` (e.g., if n_mem=4096 and min_block_size=8, then max_cached_block should be at least 512)
+2. The rotary embedding parameters (base and distance_scale) are properly set for optimal performance
 
 ## Limitations and Future Work
 
